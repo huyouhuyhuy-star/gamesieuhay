@@ -52,6 +52,7 @@ This config is public client configuration; protect data with Firebase rules.
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyC2TDD2TmTtJPU77lNUQxIRMWI2mBQzz00",
   authDomain: "gmaesieuhay.firebaseapp.com",
+  databaseURL: "https://gmaesieuhay-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "gmaesieuhay",
   storageBucket: "gmaesieuhay.firebasestorage.app",
   messagingSenderId: "302003485152",
