@@ -49,12 +49,12 @@ GitHub Pages is static hosting, so real matchmaking needs an external realtime b
 4) Paste the Firebase web config below.
 This config is public client configuration; protect data with Firebase rules.
 -------------------------------------------------------------------------- */
-const FIREBASE_CONFIG={
- apiKey:'PASTE_FIREBASE_API_KEY',
- authDomain:'PASTE_PROJECT.firebaseapp.com',
- databaseURL:'https://PASTE_PROJECT-default-rtdb.firebaseio.com',
- projectId:'PASTE_PROJECT',
- appId:'PASTE_FIREBASE_APP_ID'
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC2TDD2TmTtJPU77LNUQxIRMWI2mBQzz00",
+  authDomain: "gmaesieuhay.firebaseapp.com",
+  databaseURL: "https://gmaesieuhay-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "gmaesieuhay",
+  appId: "1:302003485152:web:d9c75fd733d11d9c0665385"
 };
 const FB_CONFIGURED=!Object.values(FIREBASE_CONFIG).some(v=>String(v).includes('PASTE_'));
 const NET={ready:false,db:null,uid:null,status:'Not configured',search:null,incoming:[],friends:{},active:false,room:null,remoteId:null,remoteObj:null,roomRef:null,roomCb:null,sendT:0,dead:false,respawnT:0,outRef:null};
