@@ -97,20 +97,115 @@ function netArenaClear(){
  if(NPC&&NPC.g)W.remove(NPC.g);NPC=null;for(const q of SH)if(q.m)W.remove(q.m);SH=[];for(const e of E)if(e.g)W.remove(e.g);E=[];G.kills=0;G.total=0;
 }
 async function joinBattleRoom(room){
- if(!NET.ready)return;closeP();$('lobby').style.display='none';$('hud').style.display='block';play=true;build(2);netArenaClear();
- NET.active=true;NET.room=String(room);NET.dead=false;NET.respawnT=0;const rr=NET.db.ref('rooms/'+NET.room);NET.roomRef=rr;
- const rs=await rr.once('value');if(!rs.exists()){NET.active=false;toLobby();return msg2('Room no longer exists')}
- const rv=rs.val(),isHost=String(rv.host)===String(S.id);P.x=isHost?-14:14;P.z=0;P.y=gy(P.x,P.z,99);P.dest=null;P.tgt=null;
- const hero=S.av;setHero(hero);const hr=heroSt(hero);hr.hp=hr.st.hp;
- const me=rr.child('players/'+safeKey(S.id));await me.set({id:S.id,name:S.name,hero,uid:NET.uid,x:P.x,z:P.z,y:P.y,f:P.f,hp:hr.hp,maxHp:hr.st.hp,alive:true,ts:firebase.database.ServerValue.TIMESTAMP});me.onDisconnect().remove();
- NET.roomCb=rr.child('players').on('value',snap=>{
-  let remote=null;snap.forEach(ch=>{const v=ch.val();if(String(v.id)!==String(S.id))remote=v});
-  if(remote){NET.remoteId=String(remote.id);if(!NET.remoteObj||NET.remoteObj.hero!==remote.hero){if(NET.remoteObj&&NET.remoteObj.g)scene.remove(NET.remoteObj.g);const tex=TX[remote.hero]||TX.NYX,g=actor(tex,1,1);scene.add(g);NET.remoteObj={remote:true,id:remote.id,hero:remote.hero,name:remote.name||'Opponent',x:remote.x||0,z:remote.z||0,y:remote.y||0,hp:remote.hp||1,mx:remote.maxHp||1,ex:1,g,dead:false,st:0,sl:0}}
-   const r=NET.remoteObj;r.x=remote.x||0;r.z=remote.z||0;r.y=remote.y||gy(r.x,r.z,99);r.hp=Math.max(0,remote.hp||0);r.mx=remote.maxHp||r.mx||1;r.dead=remote.alive===false||r.hp<=0;
-  }
-  const mine=snap.child(safeKey(S.id)).val();if(mine){const h=heroSt(P.h);h.hp=Math.max(0,Math.min(h.st.hp,mine.hp??h.hp));if((mine.alive===false||h.hp<=0)&&!NET.dead){NET.dead=true;NET.respawnT=3;msg('Defeated — respawning in 3s')}}
+ if(!NET.ready)return;
+ closeP();
+ $('lobby').style.display='none';
+ $('hud').style.display='block';
+ build(2);
+ netArenaClear();
+
+ // FIX 1v1: khởi tạo đủ trạng thái cho cả party trước khi vòng lặp update chạy.
+ // Bản cũ chỉ khởi tạo tướng đang chọn nên H[n] của tướng khác có thể undefined,
+ // làm JavaScript lỗi và màn hình chuyển đen khi vào trận.
+ for(const n of S.party){
+  const h=heroSt(n);
+  h.hp=h.st.hp;
+  h.cd=[0,0,0,0];
+ }
+
+ const hero=HERO[S.av]?S.av:(S.party[0]||'NYX');
+ setHero(hero);
+ H.__on=1;
+
+ NET.active=true;
+ NET.room=String(room);
+ NET.dead=false;
+ NET.respawnT=0;
+ NET.remoteId=null;
+ if(NET.remoteObj&&NET.remoteObj.g)scene.remove(NET.remoteObj.g);
+ NET.remoteObj=null;
+
+ const rr=NET.db.ref('rooms/'+NET.room);
+ NET.roomRef=rr;
+ const rs=await rr.once('value');
+ if(!rs.exists()){
+  NET.active=false;
+  play=false;
+  $('hud').style.display='none';
+  $('lobby').style.display='flex';
+  lobby();
+  return msg2('Phòng 1v1 không còn tồn tại');
+ }
+
+ const rv=rs.val(),isHost=String(rv.host)===String(S.id);
+ P.x=isHost?-14:14;
+ P.z=0;
+ P.y=gy(P.x,P.z,99);
+ P.vy=0;
+ P.dest=null;
+ P.tgt=null;
+ P.stun=0;
+ P.inv=0;
+ P.dg=0;
+ P.imm=0;
+
+ const hr=heroSt(hero);
+ hr.hp=hr.st.hp;
+
+ const me=rr.child('players/'+safeKey(S.id));
+ await me.set({
+  id:S.id,name:S.name,hero,uid:NET.uid,
+  x:P.x,z:P.z,y:P.y,f:P.f,
+  hp:hr.hp,maxHp:hr.st.hp,alive:true,
+  joinedAt:firebase.database.ServerValue.TIMESTAMP,
+  ts:firebase.database.ServerValue.TIMESTAMP
  });
- msg('PvP room '+NET.room+' — duel started')
+ me.onDisconnect().remove();
+
+ play=true;
+ last=performance.now();
+
+ NET.roomCb=rr.child('players').on('value',snap=>{
+  let remote=null;
+  snap.forEach(ch=>{
+   const v=ch.val();
+   if(v&&String(v.id)!==String(S.id))remote=v;
+  });
+
+  if(remote){
+   NET.remoteId=String(remote.id);
+   if(!NET.remoteObj||NET.remoteObj.hero!==remote.hero){
+    if(NET.remoteObj&&NET.remoteObj.g)scene.remove(NET.remoteObj.g);
+    const tex=TX[remote.hero]||TX.NYX,g=actor(tex,1,1);
+    scene.add(g);
+    NET.remoteObj={remote:true,id:remote.id,hero:remote.hero,name:remote.name||'Đối thủ',x:Number(remote.x)||0,z:Number(remote.z)||0,y:Number(remote.y)||0,hp:Number(remote.hp)||1,mx:Number(remote.maxHp)||1,ex:1,g,dead:false,st:0,sl:0};
+   }
+   const r=NET.remoteObj;
+   r.x=Number(remote.x)||0;
+   r.z=Number(remote.z)||0;
+   r.y=Number.isFinite(Number(remote.y))?Number(remote.y):gy(r.x,r.z,99);
+   r.hp=Math.max(0,Number(remote.hp)||0);
+   r.mx=Math.max(1,Number(remote.maxHp)||r.mx||1);
+   r.dead=remote.alive===false||r.hp<=0;
+   if(r.g)r.g.visible=!r.dead;
+  }else if(NET.remoteObj&&NET.remoteObj.g){
+   NET.remoteObj.g.visible=false;
+  }
+
+  const mine=snap.child(safeKey(S.id)).val();
+  if(mine){
+   const h=heroSt(P.h);
+   if(mine.hp!==undefined&&mine.hp!==null)h.hp=Math.max(0,Math.min(h.st.hp,Number(mine.hp)||0));
+   if((mine.alive===false||h.hp<=0)&&!NET.dead){
+    NET.dead=true;
+    NET.respawnT=3;
+    P.dest=null;
+    P.tgt=null;
+    msg('Bạn đã bị hạ — hồi sinh sau 3 giây');
+   }
+  }
+ });
+ msg('Phòng PvP '+NET.room+' — đang chờ/đã kết nối đối thủ');
 }
 async function netDealDamage(e,a,ty){
  if(!NET.active||!NET.roomRef||!e||!e.remote||e.dead)return;const path=NET.roomRef.child('players/'+safeKey(e.id)+'/hp');
@@ -119,12 +214,12 @@ async function netDealDamage(e,a,ty){
 }
 function combatTargets(){const a=E.filter(e=>!e.dead);if(NET.active&&NET.remoteObj&&!NET.remoteObj.dead)a.push(NET.remoteObj);return a}
 function netTick(dt){
- if(!NET.active||!NET.roomRef)return;NET.sendT-=dt;if(NET.sendT<=0){NET.sendT=.08;const h=heroSt(P.h);NET.roomRef.child('players/'+safeKey(S.id)).update({name:S.name,hero:P.h,x:P.x,z:P.z,y:P.y,f:P.f,hp:h.hp,maxHp:h.st.hp,alive:!NET.dead,ts:firebase.database.ServerValue.TIMESTAMP})}
+ if(!NET.active||!NET.roomRef)return;NET.sendT-=dt;if(NET.sendT<=0){NET.sendT=.08;NET.roomRef.child('players/'+safeKey(S.id)).update({name:S.name,hero:P.h,x:P.x,z:P.z,y:P.y,f:P.f,ts:firebase.database.ServerValue.TIMESTAMP})}
  const r=NET.remoteObj;if(r&&r.g){r.g.visible=!r.dead;r.g.position.set(r.x,r.y,r.z);r.g.rotation.y=Math.atan2(cam.position.x-r.x,cam.position.z-r.z);if(r.g.userData.bar){r.g.userData.bar.scale.x=Math.max(.01,r.hp/r.mx);r.g.userData.bar.position.x=-(1-r.hp/r.mx)*.8}}
  if(NET.dead){NET.respawnT-=dt;if(NET.respawnT<=0){NET.dead=false;const mine=NET.roomRef.child('players/'+safeKey(S.id)),hostSide=P.x<0;P.x=hostSide?-14:14;P.z=0;P.y=gy(P.x,P.z,99);const h=heroSt(P.h);h.hp=h.st.hp;mine.update({x:P.x,z:P.z,y:P.y,hp:h.hp,maxHp:h.st.hp,alive:true});msg('Respawned')}}
 }
 function netLeaveBattle(){
- if(!NET.active)return;try{if(NET.roomRef&&NET.roomCb)NET.roomRef.child('players').off('value',NET.roomCb);if(NET.roomRef)NET.roomRef.child('players/'+safeKey(S.id)).remove()}catch(e){}if(NET.remoteObj&&NET.remoteObj.g)scene.remove(NET.remoteObj.g);NET.active=false;NET.room=null;NET.roomRef=null;NET.roomCb=null;NET.remoteObj=null;NET.remoteId=null;NET.dead=false
+ if(!NET.active)return;try{if(NET.roomRef&&NET.roomCb)NET.roomRef.child('players').off('value',NET.roomCb);if(NET.roomRef)NET.roomRef.child('players/'+safeKey(S.id)).remove()}catch(e){}if(NET.remoteObj&&NET.remoteObj.g)scene.remove(NET.remoteObj.g);P.tgt=null;NET.active=false;NET.room=null;NET.roomRef=null;NET.roomCb=null;NET.remoteObj=null;NET.remoteId=null;NET.dead=false;NET.respawnT=0
 }
 /* ---------- DATA ---------- */
 const CH=[
@@ -284,7 +379,7 @@ if(t=='HEAL'){hr.hp+=(hr.st.hp-hr.hp)*.3;ring(P.x,P.z,3,0x6aff9a);G.sup=18}
 if(t=='CLEANSE'){P.stun=0;P.imm=3;ring(P.x,P.z,3,0xffffff);G.sup=30}
 if(t=='EXECUTE'){for(const e of E)if(!e.dead&&!e.boss&&e.hp<e.mx*.15){ring(e.x,e.z,2,0xfff06a);e.hp=0;kill(e)}G.sup=45}}
 function sw(n){if(NET.active){msg('Không thể đổi tướng trong đấu 1v1');return}if(!S.party.includes(n)||n==P.h||!H[n]||H[n].hp<=0&&n!=P.h)return;const old=PG.position;setHero(n);PG.position.copy(old);P.inv=0;Cl=[];orbT=0;ORB.forEach(o=>o.m.visible=false);rapid=0;ring(P.x,P.z,2,parseInt(HERO[n].c.slice(1),16),.3)}
-function recall(){if(!play||P.rc>0)return;P.rc=3;msg('Đang biến về…')}
+function recall(){if(!play||P.rc>0)return;if(NET.active){msg('Không thể biến về trong đấu 1v1');return}P.rc=3;msg('Đang biến về…')}
 /* ---------- INPUT ---------- */
 const K={};addEventListener('keydown',e=>{if(!play)return;K[e.code]=1;const c=e.code;
 if(c=='KeyQ')skill(0);if(c=='KeyW'&&cm==0)skill(1);if(c=='KeyE')skill(2);if(c=='KeyR')skill(3);if(c=='KeyT')flash();if(c=='KeyF')support();if(c=='KeyB')recall();
@@ -302,7 +397,7 @@ cv.addEventListener('contextmenu',e=>e.preventDefault());
 function talk(){if(!NPC||D(NPC.x-P.x,NPC.z-P.z)>5)return;if(Q.s==0){Q.s=1;msg('Isolde: Hãy tìm 3 Mảnh Trăng trong khu rừng.')}else if(Q.s==1&&SH.every(s=>s.got)){Q.s=2;S.gold+=200;S.tk+=1;msg('Hoàn thành nhiệm vụ: +200 vàng, +1 vé');save()}else if(Q.s==2)msg('Isolde: Con Ma Hươu đang chờ ở phía bắc.');else msg('Isolde: Vẫn còn thiếu Mảnh Trăng…')}
 /* ---------- UPDATE ---------- */
 function update(dt){const b=HERO[P.h],hr=H[P.h],s=hr.st,sp=b.spd*(gh(P.x,P.z)<-.5?.7:1);
-for(const n of S.party){const h=H[n];for(let i=0;i<4;i++)h.cd[i]=Math.max(0,h.cd[i]-dt)}G.flash=Math.max(0,G.flash-dt);G.sup=Math.max(0,G.sup-dt);P.at=Math.max(0,P.at-dt);P.dg=Math.max(0,P.dg-dt);P.imm=Math.max(0,P.imm-dt);P.stun=Math.max(0,(Number.isFinite(P.stun)?P.stun:0)-dt);P.ro=Math.max(0,P.ro-dt);
+for(const n of S.party){const h=H[n]||heroSt(n);for(let i=0;i<4;i++)h.cd[i]=Math.max(0,h.cd[i]-dt)}G.flash=Math.max(0,G.flash-dt);G.sup=Math.max(0,G.sup-dt);P.at=Math.max(0,P.at-dt);P.dg=Math.max(0,P.dg-dt);P.imm=Math.max(0,P.imm-dt);P.stun=Math.max(0,(Number.isFinite(P.stun)?P.stun:0)-dt);P.ro=Math.max(0,P.ro-dt);
 let mx=0,mz=0;const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);if(cm>0){if(K.KeyW){mx+=fx;mz+=fz}if(K.KeyS){mx-=fx;mz-=fz}if(K.KeyA){mx-=rx;mz-=rz}if(K.KeyD){mx+=rx;mz+=rz}}
 if(!NET.dead&&P.stun<=0){if(mx||mz){P.dest=null;P.tgt=cm==0?P.tgt:null;const l=D(mx,mz);step(P,mx/l*sp*dt,mz/l*sp*dt);if(cm==0)face(mx,mz);P.rc=0}
 else if(P.tgt&&!P.tgt.dead){const dx=P.tgt.x-P.x,dz=P.tgt.z-P.z,d=D(dx,dz);face(dx,dz);if(d>b.rng*.9+P.tgt.ex*.5){step(P,dx/d*sp*dt,dz/d*sp*dt);P.rc=0}else attack()}
@@ -311,7 +406,7 @@ if(cm>0&&K.Mouse)attack()}
 if(rapid>0){rapid-=dt;fd-=dt;if(fd<=0){fd=.1;const a=aim(),t=nearest(P.x,P.z,16);let dx=a.dx,dz=a.dz;if(t&&cm==0){dx=t.x-P.x;dz=t.z-P.z;const l=D(dx,dz)||1;dx/=l;dz/=l}face(dx,dz);proj({x:P.x,z:P.z,dx:dx+rn(-.05,.05),dz,sp:50,dmg:40+s.ad*.35,ty:'p',col:0xffd27a,sc:3,life:.5});P.ro=.06}}
 const g=gy(P.x,P.z,P.y+.5);P.vy-=32*dt;P.y+=P.vy*dt;if(P.y<=g){P.y=g;P.vy=0}
 if(P.rc>0){P.rc-=dt;if(Math.random()<.3)ring(P.x,P.z,1.5,0x9ad0ff,.5);if(P.rc<=0){P.x=3;P.z=3;P.y=gy(3,3,99);hr.hp=s.hp;ring(P.x,P.z,4,0xffffff);msg('Đã trở về tế đàn');save()}}
-if(D(P.x-altar.x,P.z-altar.z)<5)for(const n of S.party)H[n].hp=Math.min(H[n].st.hp,H[n].hp+H[n].st.hp*.05*dt);
+if(!NET.active&&D(P.x-altar.x,P.z-altar.z)<5)for(const n of S.party)H[n].hp=Math.min(H[n].st.hp,H[n].hp+H[n].st.hp*.05*dt);
 if(P.inv>0){P.inv-=dt;if(Math.random()<.3)ghost(P.x,P.z,P.y);if(P.inv<=0){PG.visible=cm!=2;Cl.forEach(c=>scene.remove(c.g));Cl=[]}}
 for(const c of Cl){c.a+=dt;const e=nearest(c.x,c.z,12);if(e){const dx=e.x-c.x,dz=e.z-c.z,d=D(dx,dz);if(d>2){c.x+=dx/d*9*dt;c.z+=dz/d*9*dt}else if(c.a%.5<dt){dmg(e,40+s.ap*.3,'m')}}c.g.position.set(c.x,gy(c.x,c.z,99),c.z);c.g.rotation.y=Math.atan2(cam.position.x-c.x,cam.position.z-c.z)}
 if(orbT>0){orbT-=dt;ORB.forEach((o,i)=>{const an=performance.now()/350+i*1.256;let x=P.x+Math.cos(an)*1.7,z=P.z+Math.sin(an)*1.7,y=P.y+1.4;if(o.d>0){o.d-=dt;const f=Math.sin(Math.PI*(1-o.d/.3));if(o.t&&!o.t.dead){x+=(o.t.x-x)*f;z+=(o.t.z-z)*f}}o.m.position.set(x,y,z);if(orbT<=0)o.m.visible=false})}
